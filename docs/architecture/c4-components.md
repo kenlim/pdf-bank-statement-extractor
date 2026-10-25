@@ -14,7 +14,7 @@ C4Component
   Container_Boundary(pkg, "statement_parser package") {
     Component(cli, "cli", "argparse", "Entry point: parses args, orchestrates, picks exit code")
     Component(config, "config", "PyYAML", "Loads extractors, auto-detects bank by signature")
-    Component(extract, "extract", "pdfplumber", "Table & lines extraction engine")
+    Component(extract, "extract", "pdfplumber", "table/lines/positional extraction engine")
     Component(normalize, "normalize", "Decimal/datetime", "Raw strings -> ISO dates + signed decimals")
     Component(reconcile, "reconcile", "Decimal", "opening + sum(amounts) == closing check")
     Component(output, "output", "csv/json", "Renders Statement as CSV or JSON")
@@ -43,7 +43,7 @@ C4Component
 | `cli.py` | Parses CLI args, orchestrates the pipeline, chooses the exit code (0/1/2/3). |
 | `config.py` | Discovers and loads `*.yaml` extractors; auto-detects the bank by matching each config's `match:` signature against the PDF text. |
 | `models.py` | Dataclasses for the config schema (`ExtractorConfig`, `TransactionConfig`, `FieldConfig`, `NormalizationConfig`) and the output (`Statement`, `Transaction`). |
-| `extract.py` | The engine. Uses pdfplumber to pull scalar fields (regex/bbox) and transactions (table mode or lines mode). Raises if zero rows after a match. |
+| `extract.py` | The engine. Uses pdfplumber to pull scalar fields (regex/bbox) and transactions (table, lines, or positional mode). Raises if zero rows after a match. |
 | `normalize.py` | Converts raw strings to ISO dates and signed `Decimal` amounts per the bank's rules (separators, `£`/`$`, `CR`/`DR`, parentheses). |
 | `reconcile.py` | Checks `opening + sum(amounts) == closing` when both balances are present. |
 | `output.py` | Renders a `Statement` to CSV (ledger) or JSON (fields + ledger). |

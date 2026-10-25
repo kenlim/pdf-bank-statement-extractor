@@ -1,0 +1,46 @@
+{
+  "bank": "hsbc-advance",
+  "fields": {
+    "statement_period": "01 January to 31 January 2099",
+    "opening_balance": "1000.00",
+    "closing_balance": "1646.79"
+  },
+  "transactions": [
+    {
+      "date": "1999-01-01",
+      "description": "CR SALARY ACME CORP",
+      "amount": "2000.00",
+      "balance": null
+    },
+    {
+      "date": "1999-01-01",
+      "description": "DD RENT LANDLORD LTD",
+      "amount": "-1200.00",
+      "balance": "1800.00"
+    },
+    {
+      "date": "1999-01-02",
+      "description": "BP COFFEE SHOP Latte",
+      "amount": "-4.50",
+      "balance": null
+    },
+    {
+      "date": "1999-01-02",
+      "description": "DD UTILITIES",
+      "amount": "-95.50",
+      "balance": "1700.00"
+    },
+    {
+      "date": "1999-01-05",
+      "description": "CR REFUND ONLINE STORE",
+      "amount": "20.00",
+      "balance": "1720.00"
+    },
+    {
+      "date": "1999-01-08",
+      "description": "BP GROCERIES",
+      "amount": "-73.21",
+      "balance": "1646.79"
+    }
+  ]
+}

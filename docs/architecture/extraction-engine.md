@@ -13,9 +13,11 @@ flowchart TD
 
     mode -->|table| tbl[Table extraction]
     mode -->|lines| lin[Lines extraction]
+    mode -->|positional| pos[Positional extraction]
 
     tbl --> rows[List of Transaction]
     lin --> rows
+    pos --> rows
     rows --> empty{zero rows?}
     empty -->|yes| err[/raise ExtractionError<br/>loud failure, exit 1/]
     empty -->|no| stmt([return Statement])
@@ -74,6 +76,35 @@ table detection fails, but each ledger row has a regular shape
 (`DD Mon YYYY  description  ±£amount  £balance`) that a regex captures cleanly.
 Wrapped description sub-labels (a second line reading "Transfer" or "Purchase")
 simply don't match the full-row pattern and are skipped.
+
+## Positional mode (separate debit/credit columns — e.g. HSBC)
+
+```mermaid
+flowchart TD
+    p[For each page in region] --> w[page.extract_words with x/y coords]
+    w --> grp[Group words into rows<br/>by vertical position]
+    grp --> each[For each row]
+    each --> cls[Classify each word:<br/>date col / description / amount]
+    cls --> amtcol{amount's x1 position?}
+    amtcol -->|<= paid_out_max| po[paid_out]
+    amtcol -->|<= paid_in_max| pi[paid_in]
+    amtcol -->|otherwise| bal[balance]
+    cls --> datecol{date in date column?}
+    datecol -->|yes| setdate[update current_date]
+    cls --> desc[accumulate description fragments]
+    po --> emit{row has paid_out<br/>or paid_in?}
+    pi --> emit
+    emit -->|yes| txn[Emit Transaction<br/>amount = paid_in - paid_out<br/>attach pending description]
+    emit -->|no| cont[keep accumulating]
+    desc --> emit
+```
+
+The positional mode handles statements like HSBC Advance that have **separate
+`Paid out` / `Paid in` / `Balance` columns** and no grid lines. Debit vs credit
+is determined by an amount's horizontal position, not a sign. Descriptions span
+multiple lines, so fragments accumulate until a row carries an amount, which
+closes the transaction. `BALANCE BROUGHT/CARRIED FORWARD` marker rows are
+skipped via `skip_rows_matching`.
 
 ## Normalization
 

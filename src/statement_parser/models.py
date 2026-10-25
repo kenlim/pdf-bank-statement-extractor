@@ -84,9 +84,15 @@ class TransactionConfig:
       - mode="lines": apply `row_pattern` (a regex with named groups) to each
         text line across pages. Lines that don't match are skipped. Good for
         whitespace-aligned statements with no usable grid lines.
+      - mode="positional": classify words by their x-position into columns
+        (date, description, paid_out, paid_in, balance). Accumulates
+        multi-line descriptions and emits a transaction whenever a row carries
+        a paid_out or paid_in amount. signed amount = paid_in - paid_out.
+        Good for statements with separate debit/credit columns (HSBC, Barclays,
+        Lloyds, NatWest) that have no grid lines.
     """
 
-    mode: str = "table"  # "table" | "lines"
+    mode: str = "table"  # "table" | "lines" | "positional"
     table_settings: dict[str, Any] = field(default_factory=dict)
     region: Region = field(default_factory=Region)
     # table mode: maps output field name -> column index in the extracted table.
@@ -98,24 +104,52 @@ class TransactionConfig:
     header_labels: list[str] = field(default_factory=list)
     # lines mode: regex with named groups (date, description, amount, balance).
     row_pattern: Optional[str] = None
+    # positional mode: x-boundaries classifying an amount's RIGHT edge (x1).
+    # An amount is paid_out if x1 <= paid_out_max; paid_in if x1 <= paid_in_max;
+    # otherwise balance. date_pattern recognizes a date cell in the date column.
+    paid_out_max: Optional[float] = None
+    paid_in_max: Optional[float] = None
+    date_x_max: Optional[float] = None  # words with x0 <= this are the date column
+    amount_pattern: str = r"^[\d,]+\.\d{2}$"
+    date_pattern: Optional[str] = None  # recognizes a date string (e.g. "01 Sep 26")
+    row_y_tolerance: float = 4.0  # words within this many points vertically = same row
+    skip_rows_matching: list[str] = field(default_factory=list)  # e.g. BALANCE*FORWARD
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "TransactionConfig":
         mode = data.get("mode", "table")
-        if mode not in ("table", "lines"):
-            raise ConfigError(f"transactions.mode must be 'table' or 'lines', got {mode!r}")
+        if mode not in ("table", "lines", "positional"):
+            raise ConfigError(
+                f"transactions.mode must be 'table', 'lines', or 'positional', got {mode!r}"
+            )
+
+        columns: dict[str, int] = {}
+        row_pattern = None
+        paid_out_max = paid_in_max = date_x_max = None
+        date_pattern = None
 
         if mode == "table":
-            columns = data.get("columns") or {}
-            if not columns:
+            cols = data.get("columns") or {}
+            if not cols:
                 raise ConfigError("transactions.columns is required in table mode (map field -> column index)")
-            columns = {k: int(v) for k, v in columns.items()}
-            row_pattern = None
-        else:  # lines
+            columns = {k: int(v) for k, v in cols.items()}
+        elif mode == "lines":
             row_pattern = data.get("row_pattern")
             if not row_pattern:
                 raise ConfigError("transactions.row_pattern is required in lines mode")
-            columns = {}
+        else:  # positional
+            if data.get("paid_out_max") is None or data.get("paid_in_max") is None:
+                raise ConfigError(
+                    "transactions.paid_out_max and paid_in_max are required in positional mode"
+                )
+            paid_out_max = float(data["paid_out_max"])
+            paid_in_max = float(data["paid_in_max"])
+            date_x_max = (
+                float(data["date_x_max"]) if data.get("date_x_max") is not None else None
+            )
+            date_pattern = data.get("date_pattern")
+            if not date_pattern:
+                raise ConfigError("transactions.date_pattern is required in positional mode")
 
         return cls(
             mode=mode,
@@ -125,6 +159,13 @@ class TransactionConfig:
             header_rows=int(data.get("header_rows", 1)),
             header_labels=list(data.get("header_labels") or []),
             row_pattern=row_pattern,
+            paid_out_max=paid_out_max,
+            paid_in_max=paid_in_max,
+            date_x_max=date_x_max,
+            amount_pattern=data.get("amount_pattern", r"^[\d,]+\.\d{2}$"),
+            date_pattern=date_pattern,
+            row_y_tolerance=float(data.get("row_y_tolerance", 4.0)),
+            skip_rows_matching=list(data.get("skip_rows_matching") or []),
         )
 
 

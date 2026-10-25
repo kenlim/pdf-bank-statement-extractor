@@ -1,0 +1,48 @@
+# Extractor for HSBC Advance statements (UK).
+#
+# HSBC statements use SEPARATE debit/credit columns (£Paid out / £Paid in /
+# £Balance) with no grid lines, and descriptions that span multiple lines. This
+# needs the "positional" mode: words are classified into columns by their
+# x-position, descriptions accumulate across lines, and a transaction is emitted
+# whenever a row carries a paid-out or paid-in amount. The signed amount is
+# paid_in - paid_out, so credits are positive and debits negative.
+
+name: hsbc-advance
+
+match:
+  - "HBUKGB"           # Bank Identifier Code prefix, unique to HSBC UK
+  - "Your HSBC Advance"
+
+normalization:
+  date_formats:
+    - "%d %b %y"       # 29 Aug 26
+  decimal_separator: "."
+  thousands_separator: ","
+
+fields:
+  statement_period:
+    pattern: "^(\\d{2} \\w+ to \\d{2} \\w+ \\d{4})$"
+  opening_balance:
+    pattern: "OpeningBalance\\s*£([\\d,]+\\.\\d{2})"
+    kind: amount
+  closing_balance:
+    pattern: "ClosingBalance\\s*£([\\d,]+\\.\\d{2})"
+    kind: amount
+
+transactions:
+  mode: positional
+  # Amount classification by the number's RIGHT edge (x1):
+  #   paid_out  : x1 <= 410  (header "£Paid out" ~x350-387, numbers end ~388-390)
+  #   paid_in   : x1 <= 495  (header "£Paid in"  ~x438-471, numbers end ~471-472)
+  #   balance   : otherwise  (header "£Balance"  ~x513-549, numbers end ~550-551)
+  paid_out_max: 410
+  paid_in_max: 495
+  # Words whose LEFT edge is at or before this x are the date column.
+  date_x_max: 100
+  # A date cell looks like "29 Aug 26".
+  date_pattern: "^\\d{2} \\w{3} \\d{2}$"
+  amount_pattern: "^[\\d,]+\\.\\d{2}$"
+  # Brought/carried forward rows are balance markers, not transactions.
+  skip_rows_matching:
+    - "BALANCE *BROUGHT *FORWARD"
+    - "BALANCE *CARRIED *FORWARD"

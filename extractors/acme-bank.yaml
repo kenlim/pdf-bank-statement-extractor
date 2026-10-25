@@ -1,0 +1,49 @@
+# Example extractor for the synthetic "Acme Bank" statement.
+#
+# This serves as both a working example and the reference for authoring new
+# bank configs. Copy it, change `match` to a signature unique to your bank,
+# and adjust the transaction region / columns / field patterns to the layout.
+
+name: acme-bank
+
+# Any of these regexes, found anywhere in the PDF text, identifies this bank.
+match:
+  - "ACME BANK"
+
+# Per-bank normalization rules.
+normalization:
+  date_formats:
+    - "%d/%m/%Y" # 01/02/2024
+  decimal_separator: "."
+  thousands_separator: ","
+  parentheses_negative: true # (4.50) means -4.50
+
+# Scalar statement-level fields, found by regex over page text.
+fields:
+  account_number:
+    pattern: "Account Number:\\s*([0-9-]+)"
+  statement_period:
+    pattern: "Statement Period:\\s*(.+)"
+  opening_balance:
+    pattern: "Opening Balance:\\s*([0-9.,]+)"
+    kind: amount
+  closing_balance:
+    pattern: "Closing Balance:\\s*([0-9.,]+)"
+    kind: amount
+
+# The transaction ledger.
+transactions:
+  # The table has visible grid lines, so use the "lines" strategy.
+  table_settings:
+    vertical_strategy: lines
+    horizontal_strategy: lines
+  # First row of the detected table is the column header.
+  header_rows: 1
+  # Drop any row that is just repeated column labels (multi-page safety).
+  header_labels: ["Date", "Description", "Amount", "Balance"]
+  # Map output fields to column indices in the extracted table.
+  columns:
+    date: 0
+    description: 1
+    amount: 2
+    balance: 3

@@ -1,0 +1,70 @@
+{
+  "bank": "chase-uk",
+  "fields": {
+    "statement_period": "01 January 2099 - 31 January 2099",
+    "opening_balance": "50.00",
+    "closing_balance": "54.50"
+  },
+  "transactions": [
+    {
+      "date": "2099-01-01",
+      "description": "Interest earned",
+      "amount": "0.10",
+      "balance": "50.10"
+    },
+    {
+      "date": "2099-01-01",
+      "description": "Round up",
+      "amount": "0.40",
+      "balance": "50.50"
+    },
+    {
+      "date": "2099-01-02",
+      "description": "Round up",
+      "amount": "0.25",
+      "balance": "50.75"
+    },
+    {
+      "date": "2099-01-03",
+      "description": "Round up",
+      "amount": "0.75",
+      "balance": "51.50"
+    },
+    {
+      "date": "2099-01-05",
+      "description": "Round up",
+      "amount": "0.50",
+      "balance": "52.00"
+    },
+    {
+      "date": "2099-01-08",
+      "description": "Round up",
+      "amount": "0.90",
+      "balance": "52.90"
+    },
+    {
+      "date": "2099-01-12",
+      "description": "Round up",
+      "amount": "0.10",
+      "balance": "53.00"
+    },
+    {
+      "date": "2099-01-15",
+      "description": "Round up",
+      "amount": "1.00",
+      "balance": "54.00"
+    },
+    {
+      "date": "2099-01-20",
+      "description": "Round up",
+      "amount": "0.30",
+      "balance": "54.30"
+    },
+    {
+      "date": "2099-01-28",
+      "description": "Round up",
+      "amount": "0.20",
+      "balance": "54.50"
+    }
+  ]
+}

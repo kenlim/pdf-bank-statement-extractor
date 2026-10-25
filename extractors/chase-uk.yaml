@@ -1,0 +1,40 @@
+# Extractor for Chase UK round-up statements (J.P. Morgan Europe Limited).
+#
+# This statement has NO ruled table lines and is whitespace-aligned, so it uses
+# the "lines" transaction mode: a regex applied to each text line. Wrapped
+# description sub-labels (e.g. a second line reading "Transfer") don't match the
+# row pattern and are skipped, which is the desired behaviour.
+
+name: chase-uk
+
+match:
+  - "Chase is a registered trademark"
+  - "J\\.P\\. Morgan Europe Limited"
+
+normalization:
+  date_formats:
+    - "%d %b %Y" # 01 Sep 2026
+  decimal_separator: "."
+  thousands_separator: ","
+  parentheses_negative: true
+
+# Statement-level fields. The summary row is:
+#   Opening balance Money in Money out Closing balance
+#   + - =
+#   £57.73 £18.37 £0.00 £76.10
+# so opening is the 1st amount and closing is the 4th on the amounts line.
+fields:
+  statement_period:
+    pattern: "^(\\d{2} \\w+ \\d{4} - \\d{2} \\w+ \\d{4})$"
+  opening_balance:
+    pattern: "^£([\\d,]+\\.\\d{2}) £[\\d,]+\\.\\d{2} £[\\d,]+\\.\\d{2} £[\\d,]+\\.\\d{2}$"
+    kind: amount
+  closing_balance:
+    pattern: "^£[\\d,]+\\.\\d{2} £[\\d,]+\\.\\d{2} £[\\d,]+\\.\\d{2} £([\\d,]+\\.\\d{2})$"
+    kind: amount
+
+transactions:
+  mode: lines
+  # DD Mon YYYY   <description>   +/-£amount   £balance
+  # The "Opening balance" summary row has no amount column, so it won't match.
+  row_pattern: "^(?P<date>\\d{2} \\w{3} \\d{4})\\s+(?P<description>.+?)\\s+(?P<amount>[+-]?£[\\d,]+\\.\\d{2})\\s+(?P<balance>£[\\d,]+\\.\\d{2})$"

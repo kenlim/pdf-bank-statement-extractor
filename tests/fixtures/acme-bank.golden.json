@@ -1,0 +1,47 @@
+{
+  "bank": "acme-bank",
+  "fields": {
+    "account_number": "12-3456-7890123-00",
+    "statement_period": "01 Feb 2024 to 29 Feb 2024",
+    "opening_balance": "1000.00",
+    "closing_balance": "2741.28"
+  },
+  "transactions": [
+    {
+      "date": "2024-02-01",
+      "description": "OPENING DEPOSIT",
+      "amount": "500.00",
+      "balance": "1500.00"
+    },
+    {
+      "date": "2024-02-03",
+      "description": "COFFEE SHOP",
+      "amount": "-4.50",
+      "balance": "1495.50"
+    },
+    {
+      "date": "2024-02-05",
+      "description": "SALARY ACME CORP",
+      "amount": "2500.00",
+      "balance": "3995.50"
+    },
+    {
+      "date": "2024-02-09",
+      "description": "GROCERIES",
+      "amount": "-73.21",
+      "balance": "3922.29"
+    },
+    {
+      "date": "2024-02-14",
+      "description": "RENT PAYMENT",
+      "amount": "-1200.00",
+      "balance": "2722.29"
+    },
+    {
+      "date": "2024-02-20",
+      "description": "REFUND ONLINE STORE",
+      "amount": "18.99",
+      "balance": "2741.28"
+    }
+  ]
+}

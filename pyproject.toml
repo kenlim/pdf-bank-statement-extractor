@@ -1,0 +1,28 @@
+[project]
+name = "pdf-statement-parser"
+version = "0.1.0"
+description = "Extract transaction data from machine-generated bank statement PDFs using configurable per-bank extractors."
+requires-python = ">=3.10"
+dependencies = [
+    "pdfplumber==0.11.4",
+    "PyYAML==6.0.2",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest==8.3.3",
+    "reportlab==4.2.5",
+]
+
+[project.scripts]
+statement-parser = "statement_parser.cli:main"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

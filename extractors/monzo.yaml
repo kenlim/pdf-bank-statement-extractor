@@ -1,0 +1,65 @@
+# Extractor for Monzo personal account statements (UK).
+#
+# Monzo statements have a single signed "Amount" column plus a running
+# "Balance". Descriptions can wrap across multiple lines (above and below the
+# amount row), so this uses "positional" mode with a single signed-amount
+# column: words are classified by x-position and each amount row claims the
+# surrounding description fragments. Debits are negative; deposits positive.
+
+name: monzo
+
+match:
+  - "Monzo Bank"
+  - "MONZGB2L"          # Monzo BIC
+
+normalization:
+  date_formats:
+    - "%d/%m/%Y"        # 10/02/2026
+  decimal_separator: "."
+  thousands_separator: ","
+
+fields:
+  statement_period:
+    pattern: "^(\\d{2}/\\d{2}/\\d{4} - \\d{2}/\\d{2}/\\d{4})$"
+  account_number:
+    pattern: "Account number:\\s*(\\d+)"
+  sort_code:
+    pattern: "Sort code:\\s*([\\d-]+)"
+  closing_balance:
+    pattern: "£([\\d,]+\\.\\d{2})$"
+    page: 1
+    kind: amount
+
+transactions:
+  mode: positional
+  # Single signed-amount column. Classification by the number's RIGHT edge (x1):
+  #   amount  : x1 <= 460  (header "Amount (GBP)", numbers end ~441)
+  #   balance : otherwise  (header "Balance",      numbers end ~524)
+  amount_max: 460
+  # Words with left edge <= this are the Date column (dates start at x0 ~70).
+  date_x_max: 130
+  # Words with left edge >= this (and left of the amounts) are the description.
+  desc_x_min: 150
+  date_pattern: "^\\d{2}/\\d{2}/\\d{4}$"
+  amount_pattern: "^-?[\\d,]+\\.\\d{2}$"
+  # Header/summary and footer boilerplate rows that must not be mistaken for
+  # transaction descriptions.
+  skip_rows_matching:
+    - "Personal Account"
+    - "Balance in Pots"
+    - "includes both Regular Pots"
+    - "Total outgoings"
+    - "Total deposits"
+    - "Sort code:"
+    - "Account number:"
+    - "BIC:"
+    - "IBAN:"
+    - "Date Description"
+    - "Monzo Bank"
+    - "FSCS"
+    - "Financial (Services|Conduct)"
+    - "Prudential Regulation"
+    - "compensation"
+    - "Registered Office"
+    - "eligible (for cover|deposits)"
+    - "United Kingdom"

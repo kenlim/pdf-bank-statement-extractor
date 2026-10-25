@@ -105,14 +105,22 @@ class TransactionConfig:
     # lines mode: regex with named groups (date, description, amount, balance).
     row_pattern: Optional[str] = None
     # positional mode: x-boundaries classifying an amount's RIGHT edge (x1).
-    # An amount is paid_out if x1 <= paid_out_max; paid_in if x1 <= paid_in_max;
-    # otherwise balance. date_pattern recognizes a date cell in the date column.
+    # Two column layouts are supported:
+    #   - two-column (debit/credit): set paid_out_max and paid_in_max. An amount
+    #     is paid_out if x1 <= paid_out_max; paid_in if x1 <= paid_in_max;
+    #     otherwise balance. Signed amount = paid_in - paid_out.
+    #   - single-column (signed): set amount_max. An amount is the (signed)
+    #     transaction amount if x1 <= amount_max; otherwise balance.
+    # date_pattern recognizes a date cell in the date column.
     paid_out_max: Optional[float] = None
     paid_in_max: Optional[float] = None
+    amount_max: Optional[float] = None  # single signed-amount column variant
     date_x_max: Optional[float] = None  # words with x0 <= this are the date column
-    amount_pattern: str = r"^[\d,]+\.\d{2}$"
+    amount_pattern: str = r"^-?[\d,]+\.\d{2}$"
     date_pattern: Optional[str] = None  # recognizes a date string (e.g. "01 Sep 26")
     row_y_tolerance: float = 4.0  # words within this many points vertically = same row
+    desc_x_min: Optional[float] = None  # words with x0 >= this (and left of amounts) are description
+    desc_below: bool = False  # also attach description rows BELOW the amount row (until a date/skip)
     skip_rows_matching: list[str] = field(default_factory=list)  # e.g. BALANCE*FORWARD
 
     @classmethod
@@ -125,7 +133,7 @@ class TransactionConfig:
 
         columns: dict[str, int] = {}
         row_pattern = None
-        paid_out_max = paid_in_max = date_x_max = None
+        paid_out_max = paid_in_max = amount_max = date_x_max = None
         date_pattern = None
 
         if mode == "table":
@@ -138,12 +146,18 @@ class TransactionConfig:
             if not row_pattern:
                 raise ConfigError("transactions.row_pattern is required in lines mode")
         else:  # positional
-            if data.get("paid_out_max") is None or data.get("paid_in_max") is None:
+            has_two_col = data.get("paid_out_max") is not None and data.get("paid_in_max") is not None
+            has_single = data.get("amount_max") is not None
+            if not (has_two_col or has_single):
                 raise ConfigError(
-                    "transactions.paid_out_max and paid_in_max are required in positional mode"
+                    "positional mode requires either (paid_out_max and paid_in_max) "
+                    "or amount_max"
                 )
-            paid_out_max = float(data["paid_out_max"])
-            paid_in_max = float(data["paid_in_max"])
+            if has_two_col:
+                paid_out_max = float(data["paid_out_max"])
+                paid_in_max = float(data["paid_in_max"])
+            if has_single:
+                amount_max = float(data["amount_max"])
             date_x_max = (
                 float(data["date_x_max"]) if data.get("date_x_max") is not None else None
             )
@@ -161,10 +175,15 @@ class TransactionConfig:
             row_pattern=row_pattern,
             paid_out_max=paid_out_max,
             paid_in_max=paid_in_max,
+            amount_max=amount_max,
             date_x_max=date_x_max,
-            amount_pattern=data.get("amount_pattern", r"^[\d,]+\.\d{2}$"),
+            amount_pattern=data.get("amount_pattern", r"^-?[\d,]+\.\d{2}$"),
             date_pattern=date_pattern,
             row_y_tolerance=float(data.get("row_y_tolerance", 4.0)),
+            desc_x_min=(
+                float(data["desc_x_min"]) if data.get("desc_x_min") is not None else None
+            ),
+            desc_below=bool(data.get("desc_below", False)),
             skip_rows_matching=list(data.get("skip_rows_matching") or []),
         )
 

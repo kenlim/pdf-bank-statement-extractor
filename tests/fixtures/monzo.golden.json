@@ -1,0 +1,35 @@
+{
+  "bank": "monzo",
+  "fields": {
+    "statement_period": "01/02/2099 - 28/02/2099",
+    "account_number": "25384833",
+    "sort_code": "04-00-04",
+    "closing_balance": "200.00"
+  },
+  "transactions": [
+    {
+      "date": "2099-02-15",
+      "description": "Coffee Shop",
+      "amount": "-4.50",
+      "balance": "200.00"
+    },
+    {
+      "date": "2099-02-12",
+      "description": "Jane Doe (P2P Payment)",
+      "amount": "50.00",
+      "balance": "204.50"
+    },
+    {
+      "date": "2099-02-10",
+      "description": "TFL Travel",
+      "amount": "-12.80",
+      "balance": "154.50"
+    },
+    {
+      "date": "2099-02-05",
+      "description": "Salary ACME",
+      "amount": "100.00",
+      "balance": "167.30"
+    }
+  ]
+}

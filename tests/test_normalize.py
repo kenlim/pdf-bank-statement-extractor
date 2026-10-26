@@ -9,6 +9,8 @@ from statement_parser.normalize import (
     NormalizationError,
     normalize_amount,
     normalize_date,
+    resolve_period_end,
+    resolve_year_for_month_day,
 )
 
 
@@ -67,3 +69,53 @@ def test_amount_empty_is_none():
 def test_amount_no_digits_raises():
     with pytest.raises(NormalizationError):
         normalize_amount("abc", norm())
+
+
+# --- year-from-period resolution (Amex-style bare month-day dates) ---------
+
+PERIOD_END_RE = r"to\d{1,2}([A-Za-z]+?)(\d{4})"
+
+
+def test_resolve_period_end_no_spaces():
+    assert resolve_period_end("11April to10May2022", PERIOD_END_RE) == (5, 2022)
+    assert resolve_period_end("11May to10June2022", PERIOD_END_RE) == (6, 2022)
+
+
+def test_resolve_period_end_missing_or_unmatched():
+    assert resolve_period_end(None, PERIOD_END_RE) is None
+    assert resolve_period_end("no period here", PERIOD_END_RE) is None
+
+
+def test_resolve_year_same_year():
+    end = (5, 2022)  # period ends May 2022
+    assert resolve_year_for_month_day("Apr30", end, ["%b%d"]) == "2022-04-30"
+    assert resolve_year_for_month_day("May9", end, ["%b%d"]) == "2022-05-09"
+
+
+def test_resolve_year_wraps_previous_year():
+    end = (1, 2023)  # period ends January 2023 (Dec -> Jan)
+    assert resolve_year_for_month_day("Dec15", end, ["%b%d"]) == "2022-12-15"
+    assert resolve_year_for_month_day("Dec31", end, ["%b%d"]) == "2022-12-31"
+    assert resolve_year_for_month_day("Jan3", end, ["%b%d"]) == "2023-01-03"
+
+
+def test_resolve_year_empty_passthrough_and_errors():
+    end = (5, 2022)
+    assert resolve_year_for_month_day("", end, ["%b%d"]) is None
+    assert resolve_year_for_month_day(None, end, ["%b%d"]) is None
+    with pytest.raises(NormalizationError):
+        resolve_year_for_month_day("May9", None, ["%b%d"])  # no period end
+    with pytest.raises(NormalizationError):
+        resolve_year_for_month_day("garbage", end, ["%b%d"])  # unparseable
+
+
+def test_collapse_extra_decimals_opt_in():
+    n = norm(collapse_extra_decimals=True)
+    assert normalize_amount("£1.182.62", n) == Decimal("1182.62")
+    assert normalize_amount("£11.40", n) == Decimal("11.40")      # single dot untouched
+    assert normalize_amount("£1,234.56", n) == Decimal("1234.56")  # normal thousands
+
+
+def test_collapse_extra_decimals_off_by_default_errors():
+    with pytest.raises(NormalizationError):
+        normalize_amount("£1.182.62", norm())

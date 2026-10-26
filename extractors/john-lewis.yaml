@@ -1,0 +1,88 @@
+# Extractor for John Lewis Partnership Card statements (UK).
+#
+# John Lewis statements lay out transactions in clean, space-separated columns:
+#   Spend date | Date processed | Card ending | Transaction details | Amount £
+# across multiple pages, with a repeating column header and no running balance.
+# This uses "positional" single signed-amount-column mode. Only the Spend date
+# and Transaction details columns are kept; the Date-processed and Card-ending
+# columns fall between them and are dropped by the column x-bounds.
+#
+# Sign convention (so previous + sum(amounts) == closing holds): spending is
+# POSITIVE; payments carry a trailing "CR" ("PAYMENT RECEIVED ... 1,482.31 CR")
+# and are flipped NEGATIVE via credit_markers.
+#
+# Foreign transaction with fee: the purchase row carries its converted sterling
+# Amount directly; a conversion sub-line ("5.00 USD @ 1.3699", no amount) and a
+# separate charged fee line ("NON-STERLING TRANSACTION FEE ... 0.10") follow.
+# The fee is captured as its own amount row; the rate on the conversion line
+# (e.g. "1.3699", four decimals) is not in the Amount column and does not match
+# amount_pattern, so it is ignored.
+#
+# Dates carry no year (e.g. "08 Jan"); the full year is derived from the
+# statement date via transactions.year_from_period.
+
+name: john-lewis
+
+match:
+  - "Partnership Card"
+  - "johnlewisfinance\\.com"
+
+normalization:
+  decimal_separator: "."
+  thousands_separator: ","
+  credit_suffixes: []
+  debit_suffixes: []
+
+fields:
+  # Account summary (page 1): "Previous balance £1,482.31" /
+  # "Your new balance £2,477.78".
+  opening_balance:
+    pattern: "Previous balance\\s*£([\\d,]+\\.\\d{2})"
+    kind: amount
+  closing_balance:
+    pattern: "Your new balance\\s*£([\\d,]+\\.\\d{2})"
+    kind: amount
+  # No printed from/to period; the statement date (page 1) gives the end
+  # month/year used to resolve transaction years.
+  statement_period:
+    pattern: "Statement date\\s*(\\d{2} \\w{3} \\d{4})"
+
+transactions:
+  mode: positional
+  # Transactions span the statement's transaction pages (4-5 here). Pin them so
+  # the account-number digits and other amount-shaped numbers on the summary
+  # pages are not read as transactions.
+  region:
+    pages: [4, 5]
+  column_bounds:
+    date:
+      # "Spend date" tokens start at x0 ~42 ("08" + "Jan"); "Date processed"
+      # starts ~x120, excluded so the date reads as a single "08 Jan".
+      left_edge_max: 100
+    description:
+      # "Transaction details" start ~x270; this floor drops the Date-processed
+      # (~x120) and Card-ending (~x210) columns.
+      left_edge_min: 265
+    amount:
+      # "Amount £" numbers end at x1 ~526-546.
+      right_edge_min: 500
+    # no balance column
+  # Dates like "08 Jan" (day, 3-letter month, no year).
+  date_pattern: "^\\d{2} \\w{3}$"
+  amount_pattern: "^-?[\\d,]+\\.\\d{2}$"
+  credit_markers:
+    - "CR"
+  skip_rows_matching:
+    - "Spend date"                  # repeating column header
+    - "All other transactions"
+    - "Spend - John Lewis"
+    - "no transaction"
+    - "Your messages"
+  # Resolve transaction years from the statement date's month/year. The period
+  # field holds "06 Feb 2022" -> end (Feb, 2022); January transactions resolve
+  # to 2022, and any December-side transaction would resolve to 2021.
+  year_from_period:
+    period_field: statement_period
+    period_end_pattern: "\\d{2} (\\w{3}) (\\d{4})"
+    date_formats:
+      - "%d %b"                      # 08 Jan

@@ -1,5 +1,6 @@
 """Integration test: parse the synthetic Chase (lines-mode) fixture vs goldens."""
 
+from decimal import Decimal
 from pathlib import Path
 
 import pdfplumber
@@ -25,10 +26,27 @@ def _extract_statement():
 def test_lines_mode_auto_detect_and_extract():
     stmt = _extract_statement()
     assert stmt.bank == "chase-uk"
-    # 10 transactions; wrapped "Transfer"/"Interest" sub-lines are skipped.
-    assert len(stmt.transactions) == 10
+    # 11 transactions; wrapped "Transfer"/"Purchase" sub-lines and the no-amount
+    # "Opening balance" row are skipped.
+    assert len(stmt.transactions) == 11
     assert stmt.fields["opening_balance"] is not None
     assert stmt.fields["closing_balance"] is not None
+
+
+def test_lines_mode_debit_and_credit_signs():
+    stmt = _extract_statement()
+    by_desc = {t.description: t.amount for t in stmt.transactions}
+    # Debits (money out) are negative; the salary credit (money in) is positive
+    # and parsed through a thousands separator.
+    assert by_desc["Fake Cafe"] < 0
+    assert by_desc["From Fake Employer - Salary"] == Decimal("1500.00")
+
+
+def test_lines_mode_opening_balance_row_skipped():
+    stmt = _extract_statement()
+    # The "Opening balance" marker row carries a balance but no amount, so it
+    # is not emitted as a transaction.
+    assert all(t.description != "Opening balance" for t in stmt.transactions)
 
 
 def test_lines_mode_csv_matches_golden():

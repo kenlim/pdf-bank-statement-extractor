@@ -1,0 +1,58 @@
+{
+  "bank": "tesco",
+  "fields": {
+    "opening_balance": "500.00",
+    "closing_balance": "1181.81",
+    "statement_period": "17December 2021- 16January 2022"
+  },
+  "transactions": [
+    {
+      "date": "2021-12-15",
+      "description": "FAKE GROCER STORE FAKETOWN",
+      "amount": "11.40",
+      "balance": null
+    },
+    {
+      "date": "2021-12-17",
+      "description": "FAKE COUNCIL FAKETOWN GB",
+      "amount": "2.00",
+      "balance": null
+    },
+    {
+      "date": "2021-12-26",
+      "description": "FAKE STORE REFUND FAKETOWN GB",
+      "amount": "-5.40",
+      "balance": null
+    },
+    {
+      "date": "2021-12-29",
+      "description": "FAKE CLINIC FAKECITY E1",
+      "amount": "240.00",
+      "balance": null
+    },
+    {
+      "date": "2022-01-03",
+      "description": "FASTERPAYMENT-THANKYOU",
+      "amount": "-791.02",
+      "balance": null
+    },
+    {
+      "date": "2022-01-08",
+      "description": "FAKE TUITION FAKELAND 1,599.00USDEXCHANGERATE1.352",
+      "amount": "1182.62",
+      "balance": null
+    },
+    {
+      "date": "2022-01-08",
+      "description": "2.75%FOREIGNEXCHANGEFEEONTHISTRANSACTION",
+      "amount": "32.52",
+      "balance": null
+    },
+    {
+      "date": "2022-01-13",
+      "description": "FAKE SUPERMARKET FAKETOWN GB",
+      "amount": "9.69",
+      "balance": null
+    }
+  ]
+}

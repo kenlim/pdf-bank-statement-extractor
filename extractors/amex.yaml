@@ -1,0 +1,105 @@
+# Extractor for American Express (UK) card statements.
+#
+# Amex statements list transactions with TWO date columns (process date ~x14,
+# transaction date ~x58), a free-text "Transaction Details" column, an optional
+# "Foreign Spend" sub-amount column (right edge ~x418), and a single right-
+# aligned "Amount £" column (right edge ~x498-533). There are no grid lines and
+# no running balance, so this uses the "positional" single-column mode.
+#
+# Sign convention (so opening + sum(amounts) == closing holds): on a credit
+# card the closing figure is what you OWE, computed as
+#   previous balance + new debits (spending) - new credits (payments).
+# So spending is POSITIVE and credits/payments (the "CR" rows) are NEGATIVE.
+# The "CR" marker sits on its own visual row at the far right; credit_markers
+# flips the sign when it is grouped onto an amount row.
+#
+# Foreign transactions add sub-lines: a foreign-currency amount in the "Foreign
+# Spend" column, a currency name, and an "Exchange Rate ... +Nonsterling
+# Transaction Fee" line. The 'amount' column band is kept tight so the
+# foreign-spend sub-amount (ends ~x418) falls in no column and is ignored
+# rather than mistaken for the sterling amount. The fee is already folded into
+# the sterling Amount £ by Amex, so it needs no separate handling. The
+# exchange-rate/fee and per-cardmember subtotal rows are skipped.
+#
+# Dates carry no year (e.g. "Apr30"); the full year is derived from the
+# statement period via transactions.year_from_period (see below).
+
+name: amex
+
+match:
+  - "American Express Services Europe"
+  - "Membership Number"
+  - "americanexpress\\.co\\.uk"
+
+normalization:
+  decimal_separator: "."
+  thousands_separator: ","
+  # "CR" only ever appears as a standalone marker word, handled via
+  # credit_markers below; keep the default suffix handling off the amount text.
+  credit_suffixes: []
+  debit_suffixes: []
+
+fields:
+  opening_balance:
+    # "Previous Balance New Credits New Debits Closing Balance" summary row:
+    # "£40.92 - £116.24 + £1,240.08 = £1,164.76"
+    pattern: "£([\\d,]+\\.\\d{2})\\s*-\\s*£[\\d,]+\\.\\d{2}\\s*\\+\\s*£[\\d,]+\\.\\d{2}\\s*=\\s*£[\\d,]+\\.\\d{2}"
+    kind: amount
+  closing_balance:
+    pattern: "£[\\d,]+\\.\\d{2}\\s*-\\s*£[\\d,]+\\.\\d{2}\\s*\\+\\s*£[\\d,]+\\.\\d{2}\\s*=\\s*£([\\d,]+\\.\\d{2})"
+    kind: amount
+  statement_period:
+    pattern: "Statement Period From\\s*(.+?to.+?\\d{4})"
+
+transactions:
+  mode: positional
+  # Column footprints in PDF x-coordinates (points). Text columns match a
+  # word's LEFT edge where text STARTS (x0); amount columns match where a
+  # number ENDS (right edge, x1), since those are right-aligned. A number that
+  # falls in no column is ignored.
+  column_bounds:
+    date:
+      # Only the PROCESS-date token (x0 ~14-45) qualifies; the transaction-date
+      # token starts ~x58. Capturing one token keeps it a single "Apr30"
+      # string that date_pattern can validate.
+      starts_before: 50
+    description:
+      # Details start ~x101; cap the far edge so the "Foreign Spend" column
+      # (currency name sits at x0 ~346) is not pulled into the description.
+      starts_between: [100, 300]
+    amount:
+      # "Amount £" numbers end at x1 ~498-533; the "Foreign Spend" sub-amount
+      # ends ~x418, falling outside this band, so it is ignored.
+      ends_between: [480, 560]
+    # no balance column on Amex
+  # Dates like "Apr30", "May3", "Jun6" (month-day, no year).
+  date_pattern: "^[A-Z][a-z]{2}\\d{1,2}$"
+  amount_pattern: "^[\\d,]+\\.\\d{2}$"
+  # Wrapped detail lines appear on the line(s) BELOW the amount/date line;
+  # attach them downward to the correct transaction.
+  desc_below: true
+  credit_markers:
+    - "CR"
+  skip_rows_matching:
+    - "Total new spend transactions"
+    - "Total of other account transactions"
+    - "OTHER ACCOUNT TRANSACTIONS"
+    - "Exchange Rate"
+    - "Nonsterling Transaction Fee"
+    - "Transaction Details"        # column header row
+    - "Transaction Process"
+    - "^ROUTING:"                   # travel itinerary sub-lines
+    - "^TICKET NUMBER:"
+    - "^TO: "
+    - "PASSENGER NAME:"
+  # Derive each transaction's full year from the statement period. The raw
+  # date is a bare month-day token ("Apr30"); year_from_period reads the
+  # `statement_period` field (e.g. "11April to10May2022"), captures the end
+  # month + year ("May", "2022"), and resolves each date's year to the end
+  # year, or end year - 1 when the month sorts after the end month (the
+  # earlier side of a period that crosses a calendar-year boundary).
+  year_from_period:
+    period_field: statement_period
+    period_end_pattern: "to\\d{1,2}([A-Za-z]+?)(\\d{4})"
+    date_formats:
+      - "%b%d"                      # Apr30, May3, Jun6

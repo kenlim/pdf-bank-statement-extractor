@@ -1,0 +1,46 @@
+{
+  "bank": "amex",
+  "fields": {
+    "opening_balance": "40.92",
+    "closing_balance": "1133.89",
+    "statement_period": "11April to10May2022"
+  },
+  "transactions": [
+    {
+      "date": "2022-04-30",
+      "description": "PAYMENT RECEIVED - THANK YOU",
+      "amount": "-116.24",
+      "balance": null
+    },
+    {
+      "date": "2022-04-11",
+      "description": "FAKE MOTORS LIMITED FAKETOWN",
+      "amount": "9.43",
+      "balance": null
+    },
+    {
+      "date": "2022-04-18",
+      "description": "FAKE SPORTS CLUB FAKETOWN",
+      "amount": "54.00",
+      "balance": null
+    },
+    {
+      "date": "2022-04-25",
+      "description": "FAKE ONLINE STORE FAKECITY",
+      "amount": "54.35",
+      "balance": null
+    },
+    {
+      "date": "2022-05-03",
+      "description": "FAKE LODGING * REF123 FAKECITY",
+      "amount": "255.00",
+      "balance": null
+    },
+    {
+      "date": "2022-05-09",
+      "description": "FAKE MEMBERSHIP UNLIM FAKELAND",
+      "amount": "836.43",
+      "balance": null
+    }
+  ]
+}

@@ -1,0 +1,93 @@
+# Extractor for Tesco Bank Clubcard credit card statements (UK, Mastercard).
+#
+# Tesco statements render text with spaces stripped out (words run together),
+# but the transaction table is cleanly column-aligned, so this uses the
+# "positional" single signed-amount-column mode. Columns:
+#   Trans Date | Post Date | <ref no.> | Transaction details | Amount £
+# with a right-aligned Amount column and no running balance.
+#
+# Sign convention (so previous + sum(amounts) == closing holds): on a credit
+# card the closing figure is what you OWE, computed as
+#   previous balance + spending - payments.
+# So spending is POSITIVE and payments (FASTER PAYMENT ... shown with a leading
+# minus, e.g. "-£791.02") are already negative in the Amount column.
+#
+# Foreign transaction with fee: a purchase line (e.g. a foreign merchant)
+# whose sterling Amount lands on the NEXT line alongside the
+# conversion detail ("1,599.00USD EXCHANGE RATE 1.352  £1.182.62"), followed by
+# a SEPARATE charged fee line ("2.75% FOREIGN EXCHANGE FEE ...  £32.52"). Both
+# the converted sterling amount and the fee are real charges and are captured
+# as their own amount rows. The converted amount prints with an OCR quirk
+# ("£1.182.62" meaning 1,182.62), handled by normalization.collapse_extra_decimals.
+#
+# Dates carry no year (e.g. "15DEC"); the full year is derived from the
+# statement period via transactions.year_from_period.
+
+name: tesco
+
+match:
+  - "CLUBCARD Credit Card"
+  - "tescobank\\.com"
+  - "TescoBank"
+
+normalization:
+  decimal_separator: "."
+  thousands_separator: ","
+  # Amounts print a leading "-" for payments; no CR/DR suffixes are used.
+  credit_suffixes: []
+  debit_suffixes: []
+  # "£1.182.62" (OCR rendered the thousands separator as ".") -> 1182.62.
+  collapse_extra_decimals: true
+
+fields:
+  # Account summary block (page 1): "Previous balance £791.02" /
+  # "New balance £2,029.55".
+  opening_balance:
+    pattern: "Previous balance\\s*£([\\d,]+\\.\\d{2})"
+    kind: amount
+  closing_balance:
+    pattern: "New balance\\s*£([\\d,]+\\.\\d{2})"
+    kind: amount
+  statement_period:
+    # On the transaction page, e.g. "17December 2021- 16January 2022".
+    pattern: "(\\d{1,2}[A-Za-z]+ \\d{4}\\s*-\\s*\\d{1,2}[A-Za-z]+ \\d{4})"
+
+transactions:
+  mode: positional
+  # Transactions are on a single page (page 3 of this statement) bounded by the
+  # "BALANCE FROM PREVIOUS STATEMENT" / "NEW BALANCE" markers. Pinning the page
+  # avoids picking up amount-shaped numbers from the summary/boilerplate pages.
+  region:
+    page: 3
+  column_bounds:
+    date:
+      # Trans Date only (x0 ~71); Post Date starts ~x122 and the transaction
+      # reference number ~x167, both excluded so the date is a single "15DEC".
+      starts_before: 110
+    description:
+      # Details start ~x218; set the floor above the reference-number column
+      # (~x167) so the ref is dropped rather than read as description.
+      starts_after: 210
+    amount:
+      ends_after: 500          # "Amount £" numbers end at x1 ~512-553
+    # no balance column
+  # Dates like "15DEC", "01JAN" (day + 3-letter month, no year).
+  date_pattern: "^\\d{1,2}[A-Z]{3}$"
+  amount_pattern: "^-?£?[\\d.,]+\\.\\d{2}$"
+  # The foreign-conversion line ("1,599.00USD EXCHANGE RATE ...") carries the
+  # converted sterling Amount, so it must NOT be skipped; its purchase row
+  # above (which has no amount) is attached as the description.
+  desc_below: true
+  skip_rows_matching:
+    - "BALANCE *FROM *PREVIOUS *STATEMENT"
+    - "NEW *BALANCE"
+    - "Trans"                        # "Trans Post Description Amount" header
+    - "^Date"
+  # Derive each transaction's year from the statement period end month/year.
+  # Period "17December 2021- 16January 2022" -> end (January, 2022); a December
+  # transaction (month 12 > 1) resolves to 2021, January to 2022.
+  year_from_period:
+    period_field: statement_period
+    period_end_pattern: "-\\s*\\d{1,2}([A-Za-z]+)\\s*(\\d{4})"
+    date_formats:
+      - "%d%b"                       # 15DEC, 01JAN

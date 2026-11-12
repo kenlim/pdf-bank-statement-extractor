@@ -55,12 +55,14 @@ class Statement:
 class Region:
     """A region of a page to restrict extraction to.
 
-    bbox is (x0, top, x1, bottom) in PDF points. All optional; when absent
-    the whole page is used.
+    bbox is (x0, top, x1, bottom) in PDF points. `page` pins a single 1-indexed
+    page; `pages` pins several. All optional; when both are absent every page is
+    used. `page` and `pages` are mutually exclusive.
     """
 
     bbox: Optional[tuple[float, float, float, float]] = None
     page: Optional[int] = None  # 1-indexed; None means all pages
+    pages: Optional[list[int]] = None  # 1-indexed list; alternative to `page`
 
     @classmethod
     def from_dict(cls, data: Optional[dict[str, Any]]) -> "Region":
@@ -71,7 +73,121 @@ class Region:
             bbox = tuple(float(v) for v in bbox)  # type: ignore[assignment]
             if len(bbox) != 4:
                 raise ConfigError("region.bbox must have exactly 4 numbers (x0, top, x1, bottom)")
-        return cls(bbox=bbox, page=data.get("page"))
+        page = data.get("page")
+        pages = data.get("pages")
+        if page is not None and pages is not None:
+            raise ConfigError("region may set 'page' or 'pages', not both")
+        if pages is not None:
+            if not isinstance(pages, list) or not pages:
+                raise ConfigError("region.pages must be a non-empty list of page numbers")
+            pages = [int(p) for p in pages]
+        return cls(bbox=bbox, page=page, pages=pages)
+
+    def page_numbers(self, total: int) -> Optional[list[int]]:
+        """Resolve to a sorted list of 1-indexed page numbers, or None for all."""
+        if self.pages is not None:
+            return sorted(p for p in self.pages if 1 <= p <= total)
+        if self.page is not None:
+            return [self.page] if 1 <= self.page <= total else []
+        return None
+
+
+@dataclass
+class ColumnBounds:
+    """The x-coordinate footprint of one positional-mode column, in PDF points.
+
+    Text columns (date, description) are matched by a word's LEFT edge, i.e.
+    where the text STARTS (x0); amount-style columns (amount, paid_out,
+    paid_in, balance) are matched by a number's RIGHT edge, i.e. where it ENDS
+    (x1), since those columns are right-aligned. All bounds are inclusive
+    ("before"/"after" mean "at or before"/"at or after"). A word/number falls
+    in the column when every bound it sets is satisfied.
+
+    Keys (all optional, mix as needed):
+      starts_before:  N        ->  x0 <= N   (text starts at or before N)
+      starts_after:   N        ->  x0 >= N   (text starts at or after N)
+      starts_between: [lo, hi] ->  lo <= x0 <= hi
+      ends_before:    N        ->  x1 <= N   (number ends at or before N)
+      ends_after:     N        ->  x1 >= N   (number ends at or after N)
+      ends_between:   [lo, hi] ->  lo <= x1 <= hi
+
+    Two columns may share a boundary value (e.g. paid_in ends_before 495 and
+    balance ends_after 495); ordered column evaluation assigns the exact-495
+    case to whichever column is tested first.
+    """
+
+    left_edge_min: Optional[float] = None
+    left_edge_max: Optional[float] = None
+    right_edge_min: Optional[float] = None
+    right_edge_max: Optional[float] = None
+
+    @classmethod
+    def from_dict(cls, col_name: str, data: dict[str, Any]) -> "ColumnBounds":
+        if not isinstance(data, dict):
+            raise ConfigError(
+                f"column '{col_name}' must be a mapping of edge bounds"
+            )
+        known = {
+            "starts_before",
+            "starts_after",
+            "starts_between",
+            "ends_before",
+            "ends_after",
+            "ends_between",
+        }
+        unknown = set(data) - known
+        if unknown:
+            raise ConfigError(
+                f"column '{col_name}' has unknown bound(s): {sorted(unknown)}. "
+                f"Allowed: {sorted(known)}"
+            )
+
+        def _band(single_lo: str, single_hi: str, between: str):
+            """Resolve an inclusive (min, max) pair from single + between keys.
+            'after' is the lower bound; 'before' is the upper bound."""
+            lo = data.get(single_lo)
+            hi = data.get(single_hi)
+            rng = data.get(between)
+            if rng is not None:
+                if lo is not None or hi is not None:
+                    raise ConfigError(
+                        f"column '{col_name}': {between} cannot be combined with "
+                        f"{single_lo}/{single_hi}"
+                    )
+                if not (isinstance(rng, (list, tuple)) and len(rng) == 2):
+                    raise ConfigError(
+                        f"column '{col_name}': {between} must be [lo, hi]"
+                    )
+                lo, hi = rng[0], rng[1]
+            return (
+                float(lo) if lo is not None else None,
+                float(hi) if hi is not None else None,
+            )
+
+        left_min, left_max = _band("starts_after", "starts_before", "starts_between")
+        right_min, right_max = _band("ends_after", "ends_before", "ends_between")
+        return cls(
+            left_edge_min=left_min,
+            left_edge_max=left_max,
+            right_edge_min=right_min,
+            right_edge_max=right_max,
+        )
+
+    def matches_left_edge(self, x0: float) -> bool:
+        """Whether a word at left edge x0 falls in this (text) column."""
+        if self.left_edge_min is not None and x0 < self.left_edge_min:
+            return False
+        if self.left_edge_max is not None and x0 > self.left_edge_max:
+            return False
+        return True
+
+    def matches_right_edge(self, x1: float) -> bool:
+        """Whether a number at right edge x1 falls in this (amount) column."""
+        if self.right_edge_min is not None and x1 < self.right_edge_min:
+            return False
+        if self.right_edge_max is not None and x1 > self.right_edge_max:
+            return False
+        return True
 
 
 @dataclass
@@ -104,23 +220,34 @@ class TransactionConfig:
     header_labels: list[str] = field(default_factory=list)
     # lines mode: regex with named groups (date, description, amount, balance).
     row_pattern: Optional[str] = None
-    # positional mode: x-boundaries classifying an amount's RIGHT edge (x1).
-    # Two column layouts are supported:
-    #   - two-column (debit/credit): set paid_out_max and paid_in_max. An amount
-    #     is paid_out if x1 <= paid_out_max; paid_in if x1 <= paid_in_max;
-    #     otherwise balance. Signed amount = paid_in - paid_out.
-    #   - single-column (signed): set amount_max. An amount is the (signed)
-    #     transaction amount if x1 <= amount_max; otherwise balance.
+    # positional mode: per-column x-coordinate footprints (PDF points, NOT
+    # monetary limits). A mapping of column name -> ColumnBounds for the
+    # columns present on the statement. Recognised column names:
+    #   date, description : matched by a word's LEFT edge (x0)
+    #   amount            : single signed-amount column (matched by RIGHT edge)
+    #   paid_out, paid_in : two-column debit/credit layout (matched by RIGHT
+    #                       edge); signed amount = paid_in - paid_out
+    #   balance           : running balance (matched by RIGHT edge)
+    # A number that matches no amount-style column is IGNORED (e.g. an Amex
+    # "Foreign Spend" sub-amount that falls left of the amount column's band).
     # date_pattern recognizes a date cell in the date column.
-    paid_out_max: Optional[float] = None
-    paid_in_max: Optional[float] = None
-    amount_max: Optional[float] = None  # single signed-amount column variant
-    date_x_max: Optional[float] = None  # words with x0 <= this are the date column
+    column_bounds: dict[str, "ColumnBounds"] = field(default_factory=dict)
     amount_pattern: str = r"^-?[\d,]+\.\d{2}$"
     date_pattern: Optional[str] = None  # recognizes a date string (e.g. "01 Sep 26")
     row_y_tolerance: float = 4.0  # words within this many points vertically = same row
-    desc_x_min: Optional[float] = None  # words with x0 >= this (and left of amounts) are description
     desc_below: bool = False  # also attach description rows BELOW the amount row (until a date/skip)
+    # Resolve a full year for bare month-day dates (e.g. "Apr30") from the
+    # statement period. When set, it names the extracted field holding the
+    # period text and a regex that captures the period's END month and year
+    # (e.g. "May" and "2022" from "11April to10May2022"). A transaction's year
+    # is the end year, or end year - 1 when its month sorts after the end month
+    # (i.e. it belongs to the earlier side of a period that crosses a year
+    # boundary). Requires the raw date to match one of the normalization's
+    # month-day date_formats once a year is appended.
+    year_from_period: Optional[dict] = None
+    # Non-numeric tokens on an amount row that flip the signed amount negative,
+    # e.g. ["CR"] on a credit-card statement where a credit/payment is money in.
+    credit_markers: list[str] = field(default_factory=list)
     skip_rows_matching: list[str] = field(default_factory=list)  # e.g. BALANCE*FORWARD
 
     @classmethod
@@ -133,7 +260,7 @@ class TransactionConfig:
 
         columns: dict[str, int] = {}
         row_pattern = None
-        paid_out_max = paid_in_max = amount_max = date_x_max = None
+        column_bounds: dict[str, ColumnBounds] = {}
         date_pattern = None
 
         if mode == "table":
@@ -146,21 +273,35 @@ class TransactionConfig:
             if not row_pattern:
                 raise ConfigError("transactions.row_pattern is required in lines mode")
         else:  # positional
-            has_two_col = data.get("paid_out_max") is not None and data.get("paid_in_max") is not None
-            has_single = data.get("amount_max") is not None
-            if not (has_two_col or has_single):
+            raw_bounds = data.get("column_bounds")
+            if not isinstance(raw_bounds, dict) or not raw_bounds:
                 raise ConfigError(
-                    "positional mode requires either (paid_out_max and paid_in_max) "
-                    "or amount_max"
+                    "positional mode requires a 'column_bounds' mapping of "
+                    "column name -> edge bounds"
                 )
-            if has_two_col:
-                paid_out_max = float(data["paid_out_max"])
-                paid_in_max = float(data["paid_in_max"])
-            if has_single:
-                amount_max = float(data["amount_max"])
-            date_x_max = (
-                float(data["date_x_max"]) if data.get("date_x_max") is not None else None
-            )
+            allowed_cols = {"date", "description", "amount", "paid_out", "paid_in", "balance"}
+            unknown = set(raw_bounds) - allowed_cols
+            if unknown:
+                raise ConfigError(
+                    f"column_bounds has unknown column(s): {sorted(unknown)}. "
+                    f"Allowed: {sorted(allowed_cols)}"
+                )
+            column_bounds = {
+                name: ColumnBounds.from_dict(name, spec) for name, spec in raw_bounds.items()
+            }
+            has_single = "amount" in column_bounds
+            has_two_col = "paid_out" in column_bounds and "paid_in" in column_bounds
+            if not (has_single or has_two_col):
+                raise ConfigError(
+                    "positional column_bounds must define either an 'amount' "
+                    "column (single signed-amount layout) or both 'paid_out' "
+                    "and 'paid_in' columns (debit/credit layout)"
+                )
+            if has_single and has_two_col:
+                raise ConfigError(
+                    "positional column_bounds cannot mix 'amount' with "
+                    "'paid_out'/'paid_in'; choose one layout"
+                )
             date_pattern = data.get("date_pattern")
             if not date_pattern:
                 raise ConfigError("transactions.date_pattern is required in positional mode")
@@ -173,18 +314,18 @@ class TransactionConfig:
             header_rows=int(data.get("header_rows", 1)),
             header_labels=list(data.get("header_labels") or []),
             row_pattern=row_pattern,
-            paid_out_max=paid_out_max,
-            paid_in_max=paid_in_max,
-            amount_max=amount_max,
-            date_x_max=date_x_max,
+            column_bounds=column_bounds,
             amount_pattern=data.get("amount_pattern", r"^-?[\d,]+\.\d{2}$"),
             date_pattern=date_pattern,
             row_y_tolerance=float(data.get("row_y_tolerance", 4.0)),
-            desc_x_min=(
-                float(data["desc_x_min"]) if data.get("desc_x_min") is not None else None
-            ),
             desc_below=bool(data.get("desc_below", False)),
+            credit_markers=list(data.get("credit_markers") or []),
             skip_rows_matching=list(data.get("skip_rows_matching") or []),
+            year_from_period=(
+                dict(data["year_from_period"])
+                if data.get("year_from_period") is not None
+                else None
+            ),
         )
 
 
@@ -227,6 +368,10 @@ class NormalizationConfig:
     debit_suffixes: list[str] = field(default_factory=lambda: ["DR"])
     # If True, parentheses around a number mean a negative value.
     parentheses_negative: bool = True
+    # If True, when a number has more than one decimal separator (an OCR quirk
+    # seen on some statements, e.g. "1.182.62" meaning 1,182.62), treat all but
+    # the LAST separator as thousands separators. Off by default.
+    collapse_extra_decimals: bool = False
 
     @classmethod
     def from_dict(cls, data: Optional[dict[str, Any]]) -> "NormalizationConfig":
@@ -238,6 +383,7 @@ class NormalizationConfig:
             credit_suffixes=list(data.get("credit_suffixes") or ["CR"]),
             debit_suffixes=list(data.get("debit_suffixes") or ["DR"]),
             parentheses_negative=bool(data.get("parentheses_negative", True)),
+            collapse_extra_decimals=bool(data.get("collapse_extra_decimals", False)),
         )
 
 

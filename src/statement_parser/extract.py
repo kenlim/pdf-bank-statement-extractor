@@ -17,7 +17,12 @@ from .models import (
     Transaction,
     TransactionConfig,
 )
-from .normalize import normalize_amount, normalize_date
+from .normalize import (
+    normalize_amount,
+    normalize_date,
+    resolve_period_end,
+    resolve_year_for_month_day,
+)
 
 
 class ExtractionError(Exception):
@@ -35,6 +40,13 @@ def _pages_for(pdf: pdfplumber.PDF, page: Optional[int]) -> list[Any]:
     if page < 1 or page > len(pdf.pages):
         return []
     return [pdf.pages[page - 1]]
+
+
+def _pages_for_region(pdf: pdfplumber.PDF, region: Region) -> list[Any]:
+    nums = region.page_numbers(len(pdf.pages))
+    if nums is None:
+        return list(pdf.pages)
+    return [pdf.pages[n - 1] for n in nums]
 
 
 def _region_of(page: Any, region: Region) -> Any:
@@ -108,7 +120,7 @@ def _extract_transactions_lines(pdf: pdfplumber.PDF, cfg: ExtractorConfig) -> li
     pattern = re.compile(tcfg.row_pattern)  # type: ignore[arg-type]
 
     transactions: list[Transaction] = []
-    for page in _pages_for(pdf, tcfg.region.page):
+    for page in _pages_for_region(pdf, tcfg.region):
         region = _region_of(page, tcfg.region)
         text = region.extract_text() or ""
         for line in text.split("\n"):
@@ -137,10 +149,13 @@ def _extract_transactions_positional(pdf: pdfplumber.PDF, cfg: ExtractorConfig) 
     """Classify words by x-position into columns, accumulating multi-line
     descriptions, and emit a transaction per amount row.
 
-    Supports two column layouts:
-      - two-column debit/credit: paid_out_max + paid_in_max set. Signed amount
-        = paid_in - paid_out.
-      - single signed-amount column: amount_max set.
+    Supports two column layouts, selected by which columns `column_bounds`
+    defines:
+      - two-column debit/credit: 'paid_out' + 'paid_in' columns. Signed
+        amount = paid_in - paid_out.
+      - single signed-amount column: an 'amount' column.
+    A 'balance' column is optional in both. A number matching no amount-style
+    column is ignored.
 
     An "amount row" is a visual row that carries a transaction amount. Because
     descriptions can wrap onto rows *above and below* the amount row, each
@@ -152,19 +167,28 @@ def _extract_transactions_positional(pdf: pdfplumber.PDF, cfg: ExtractorConfig) 
     amt_re = re.compile(tcfg.amount_pattern)
     date_re = re.compile(tcfg.date_pattern)  # type: ignore[arg-type]
     skip_res = [re.compile(p) for p in tcfg.skip_rows_matching]
-    single_col = tcfg.amount_max is not None
+    bounds = tcfg.column_bounds
+    single_col = "amount" in bounds
+    date_col = bounds.get("date")
+    desc_col = bounds.get("description")
 
     def classify_amount(text: str, x1: float):
-        """Return (paid_out, paid_in, amount, balance) with one slot filled."""
+        """Return (paid_out, paid_in, amount, balance) with one slot filled,
+        or None if the number falls in no amount-style column (ignored, e.g.
+        an Amex "Foreign Spend" sub-amount left of the amount column)."""
         if single_col:
-            if x1 <= tcfg.amount_max:  # type: ignore[operator]
+            if bounds["amount"].matches_right_edge(x1):
                 return (None, None, text, None)
-            return (None, None, None, text)
-        if x1 <= tcfg.paid_out_max:  # type: ignore[operator]
+            if "balance" in bounds and bounds["balance"].matches_right_edge(x1):
+                return (None, None, None, text)
+            return None
+        if bounds["paid_out"].matches_right_edge(x1):
             return (text, None, None, None)
-        if x1 <= tcfg.paid_in_max:  # type: ignore[operator]
+        if bounds["paid_in"].matches_right_edge(x1):
             return (None, text, None, None)
-        return (None, None, None, text)
+        if "balance" in bounds and bounds["balance"].matches_right_edge(x1):
+            return (None, None, None, text)
+        return None
 
     # First pass: parse every visual row into a structured record.
     @dataclass
@@ -175,6 +199,7 @@ def _extract_transactions_positional(pdf: pdfplumber.PDF, cfg: ExtractorConfig) 
         paid_in: Optional[str]
         amount: Optional[str]
         balance: Optional[str]
+        credit: bool
         skip: bool
 
         @property
@@ -182,25 +207,33 @@ def _extract_transactions_positional(pdf: pdfplumber.PDF, cfg: ExtractorConfig) 
             return any(v is not None for v in (self.paid_out, self.paid_in, self.amount))
 
     parsed: list[_Row] = []
-    for page in _pages_for(pdf, tcfg.region.page):
+    credit_markers = [m.upper() for m in tcfg.credit_markers]
+    for page in _pages_for_region(pdf, tcfg.region):
         region = _region_of(page, tcfg.region)
         words = region.extract_words()
         for row in _group_words_into_rows(words, tcfg.row_y_tolerance):
             date_tokens: list[str] = []
             desc_tokens: list[str] = []
             paid_out = paid_in = amount = balance = None
+            credit = False
             for w in row:
                 text = w["text"]
                 x0, x1 = w["x0"], w["x1"]
+                if credit_markers and text.upper() in credit_markers:
+                    credit = True
+                    continue
                 if amt_re.match(text):
-                    po, pi, am, ba = classify_amount(text, x1)
+                    classified = classify_amount(text, x1)
+                    if classified is None:
+                        continue  # ignored number (outside the amount band)
+                    po, pi, am, ba = classified
                     paid_out = paid_out or po
                     paid_in = paid_in or pi
                     amount = amount or am
                     balance = balance or ba
-                elif tcfg.date_x_max is not None and x0 <= tcfg.date_x_max:
+                elif date_col is not None and date_col.matches_left_edge(x0):
                     date_tokens.append(text)
-                elif tcfg.desc_x_min is None or x0 >= tcfg.desc_x_min:
+                elif desc_col is None or desc_col.matches_left_edge(x0):
                     desc_tokens.append(text)
 
             date_val: Optional[str] = None
@@ -221,9 +254,25 @@ def _extract_transactions_positional(pdf: pdfplumber.PDF, cfg: ExtractorConfig) 
                     paid_in=paid_in,
                     amount=amount,
                     balance=balance,
+                    credit=credit,
                     skip=skip,
                 )
             )
+
+    # Propagate standalone credit-marker rows (e.g. a lone "CR" sitting just
+    # below its amount, outside row_y_tolerance) onto the nearest preceding
+    # amount row. Such a row carries the credit flag but no amount of its own
+    # (it may carry a wrapped description fragment that groups onto the same
+    # visual line as the marker).
+    if credit_markers:
+        for i, r in enumerate(parsed):
+            if r.credit and not r.has_amount:
+                for j in range(i - 1, -1, -1):
+                    if parsed[j].has_amount:
+                        parsed[j].credit = True
+                        break
+                    if parsed[j].skip or parsed[j].date:
+                        break  # don't reach past a skip/date boundary
 
     # Second pass: build transactions. Each amount row takes its OWN
     # description-column text, plus description fragments from immediately
@@ -233,6 +282,9 @@ def _extract_transactions_positional(pdf: pdfplumber.PDF, cfg: ExtractorConfig) 
     amount_set = set(amount_indices)
     transactions: list[Transaction] = []
     current_date: Optional[str] = None
+    # Rows already attached to a transaction as a below-the-amount (desc_below)
+    # continuation, so the next amount row's above-scan doesn't claim them too.
+    consumed_below: set[int] = set()
 
     for pos, idx in enumerate(amount_indices):
         row = parsed[idx]
@@ -243,9 +295,12 @@ def _extract_transactions_positional(pdf: pdfplumber.PDF, cfg: ExtractorConfig) 
         # to THIS transaction (descriptions wrap onto the lines above the
         # amount). Skip rows (boilerplate/headers) act as barriers. A small
         # tail of description below the amount row is also attached, up to the
-        # next skip-row barrier or the next amount row.
+        # next skip-row barrier or the next amount row. Rows already consumed
+        # as a previous transaction's below-continuation are not reclaimed.
         desc_parts: list[str] = []
         for j in range(prev_amt + 1, idx):
+            if j in consumed_below:
+                continue
             if parsed[j].skip:
                 desc_parts = []  # barrier: drop anything above the boilerplate
                 continue
@@ -268,12 +323,15 @@ def _extract_transactions_positional(pdf: pdfplumber.PDF, cfg: ExtractorConfig) 
                 break
             if parsed[j].desc:
                 desc_parts.append(parsed[j].desc)
+                consumed_below.add(j)
 
         if row.skip:
             continue
 
         if single_col:
             signed = normalize_amount(row.amount, norm) if row.amount else None
+            if signed is not None and row.credit:
+                signed = -signed
         else:
             out_val = normalize_amount(row.paid_out, norm) if row.paid_out else None
             in_val = normalize_amount(row.paid_in, norm) if row.paid_in else None
@@ -304,7 +362,7 @@ def _extract_transactions_table(pdf: pdfplumber.PDF, cfg: ExtractorConfig) -> li
     norm = cfg.normalization
     rows: list[list[Optional[str]]] = []
 
-    for page in _pages_for(pdf, tcfg.region.page):
+    for page in _pages_for_region(pdf, tcfg.region):
         region = _region_of(page, tcfg.region)
         tables = region.extract_tables(tcfg.table_settings or None)
         for table in tables:
@@ -325,6 +383,29 @@ def _extract_transactions_table(pdf: pdfplumber.PDF, cfg: ExtractorConfig) -> li
     return transactions
 
 
+def _resolve_transaction_years(
+    transactions: list[Transaction], fields: dict[str, Any], cfg: ExtractorConfig
+) -> None:
+    """Rewrite bare month-day transaction dates to full ISO dates using the
+    statement period, when the extractor configures `year_from_period`.
+    Mutates transactions in place."""
+    spec = cfg.transactions.year_from_period
+    if not spec:
+        return
+    period_field = spec.get("period_field")
+    end_pattern = spec.get("period_end_pattern")
+    input_formats = spec.get("date_formats") or []
+    if not (period_field and end_pattern and input_formats):
+        return
+    period_text = fields.get(period_field)
+    period_end = resolve_period_end(period_text, end_pattern)
+    for t in transactions:
+        raw_date = t.raw.get("date") if t.raw else None
+        resolved = resolve_year_for_month_day(raw_date, period_end, input_formats)
+        if resolved is not None:
+            t.date = resolved
+
+
 def extract(pdf: pdfplumber.PDF, cfg: ExtractorConfig) -> Statement:
     """Run a bank's extractor against an opened PDF."""
     fields = _extract_fields(pdf, cfg.fields, cfg.normalization)
@@ -332,7 +413,12 @@ def extract(pdf: pdfplumber.PDF, cfg: ExtractorConfig) -> Statement:
 
     if not transactions:
         region = cfg.transactions.region
-        where = f"page {region.page}" if region.page else "all pages"
+        if region.pages:
+            where = f"pages {region.pages}"
+        elif region.page:
+            where = f"page {region.page}"
+        else:
+            where = "all pages"
         if region.bbox:
             where += f", bbox {region.bbox}"
         raise ExtractionError(
@@ -340,5 +426,7 @@ def extract(pdf: pdfplumber.PDF, cfg: ExtractorConfig) -> Statement:
             f"(searched {where}). The statement layout may have changed, or the "
             f"transaction region/table_settings in {cfg.source_path} may be wrong."
         )
+
+    _resolve_transaction_years(transactions, fields, cfg)
 
     return Statement(bank=cfg.name, fields=fields, transactions=transactions)

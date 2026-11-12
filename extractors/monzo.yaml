@@ -32,14 +32,13 @@ fields:
 
 transactions:
   mode: positional
-  # Single signed-amount column. Classification by the number's RIGHT edge (x1):
-  #   amount  : x1 <= 460  (header "Amount (GBP)", numbers end ~441)
-  #   balance : otherwise  (header "Balance",      numbers end ~524)
-  amount_max: 460
-  # Words with left edge <= this are the Date column (dates start at x0 ~70).
-  date_x_max: 130
-  # Words with left edge >= this (and left of the amounts) are the description.
-  desc_x_min: 150
+  # Column footprints in PDF x-coordinates (points). Text columns match a
+  # word's LEFT edge (x0); amount columns match a number's RIGHT edge (x1).
+  column_bounds:
+    date:        { starts_before: 130 }  # date words start at/before x0=130 (~70)
+    description: { starts_after: 150 }   # details start at/after x0=150
+    amount:      { ends_before: 460 }    # number ends at/before x1=460 -> amount (~441)
+    balance:     { ends_after: 460 }     # else ends at/after  x1=460 -> balance (~524)
   date_pattern: "^\\d{2}/\\d{2}/\\d{4}$"
   amount_pattern: "^-?[\\d,]+\\.\\d{2}$"
   # Header/summary and footer boilerplate rows that must not be mistaken for

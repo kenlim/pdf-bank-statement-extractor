@@ -86,8 +86,8 @@ flowchart TD
     grp --> each[For each row]
     each --> cls[Classify each word:<br/>date col / description / amount]
     cls --> amtcol{amount's x1 position?}
-    amtcol -->|<= paid_out_max| po[paid_out]
-    amtcol -->|<= paid_in_max| pi[paid_in]
+    amtcol -->|in paid_out column| po[paid_out]
+    amtcol -->|in paid_in column| pi[paid_in]
     amtcol -->|otherwise| bal[balance]
     cls --> datecol{date in date column?}
     datecol -->|yes| setdate[update current_date]

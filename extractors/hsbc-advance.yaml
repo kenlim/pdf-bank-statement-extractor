@@ -31,19 +31,16 @@ fields:
 
 transactions:
   mode: positional
-  # Column footprints in PDF x-coordinates (points). Amount columns match a
-  # number's RIGHT edge (x1); they are tested in order (paid_out, paid_in,
-  # balance), so a number <= 410 is paid_out even though it also satisfies
+  # Column footprints in PDF x-coordinates (points). Text columns match where a
+  # word STARTS (left edge); amount columns match where a number ENDS (right
+  # edge). Amount columns are tested in order (paid_out, paid_in, balance), so a
+  # number ending at/before 410 is paid_out even though it also satisfies
   # paid_in's bound.
   column_bounds:
-    date:
-      left_edge_max: 100        # date words start at/before here ("29 Aug 26")
-    paid_out:
-      right_edge_max: 410       # "£Paid out" numbers end ~388-390
-    paid_in:
-      right_edge_max: 495       # "£Paid in"  numbers end ~471-472
-    balance:
-      right_edge_min: 495       # "£Balance"  numbers end ~550-551
+    date:     { starts_before: 100 }  # date words start at/before x0=100 ("29 Aug 26")
+    paid_out: { ends_before: 410 }    # number ends at/before x1=410 -> debit
+    paid_in:  { ends_before: 495 }    # else ends at/before x1=495   -> credit
+    balance:  { ends_after: 495 }     # else ends at/after  x1=495   -> balance
   # A date cell looks like "29 Aug 26".
   date_pattern: "^\\d{2} \\w{3} \\d{2}$"
   amount_pattern: "^[\\d,]+\\.\\d{2}$"

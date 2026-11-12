@@ -137,16 +137,17 @@ debits negative) in the two-column layout. See
 transactions:
   mode: positional
   # Each column's footprint in PDF x-coordinates (points). Text columns match
-  # a word's LEFT edge (x0); amount columns match a number's RIGHT edge (x1),
-  # since those are right-aligned. Bounds are inclusive; amount columns are
-  # tested in order (paid_out, paid_in, balance). A number in no column is
-  # ignored. Available bounds per column: left_edge_min, left_edge_max,
-  # right_edge_min, right_edge_max, right_edge_range: [lo, hi].
+  # where a word STARTS (left edge, x0); amount columns match where a number
+  # ENDS (right edge, x1), since those are right-aligned. Bounds are inclusive
+  # ("before"/"after" = "at or before/after"); amount columns are tested in
+  # order (paid_out, paid_in, balance). A number in no column is ignored.
+  # Available bounds per column: starts_before, starts_after, ends_before,
+  # ends_after, starts_between: [lo, hi], ends_between: [lo, hi].
   column_bounds:
-    date:     { left_edge_max: 100 }   # date words start at/before x0=100
-    paid_out: { right_edge_max: 410 }  # number ends at/before x1=410 -> debit
-    paid_in:  { right_edge_max: 495 }  # else ends at/before x1=495   -> credit
-    balance:  { right_edge_min: 495 }  # else ends at/after  x1=495   -> balance
+    date:     { starts_before: 100 }  # date words start at/before x0=100
+    paid_out: { ends_before: 410 }    # number ends at/before x1=410 -> debit
+    paid_in:  { ends_before: 495 }    # else ends at/before x1=495   -> credit
+    balance:  { ends_after: 495 }     # else ends at/after  x1=495   -> balance
   date_pattern: "^\\d{2} \\w{3} \\d{2}$"
   skip_rows_matching:        # non-transaction marker rows
     - "BALANCE *BROUGHT *FORWARD"

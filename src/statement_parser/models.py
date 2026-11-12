@@ -96,18 +96,24 @@ class Region:
 class ColumnBounds:
     """The x-coordinate footprint of one positional-mode column, in PDF points.
 
-    Text columns (date, description) are matched by a word's LEFT edge (x0);
-    amount-style columns (amount, paid_out, paid_in, balance) are matched by a
-    number's RIGHT edge (x1), since those columns are right-aligned. All bounds
-    are inclusive. A word/number falls in the column when every bound it sets
-    is satisfied.
+    Text columns (date, description) are matched by a word's LEFT edge, i.e.
+    where the text STARTS (x0); amount-style columns (amount, paid_out,
+    paid_in, balance) are matched by a number's RIGHT edge, i.e. where it ENDS
+    (x1), since those columns are right-aligned. All bounds are inclusive
+    ("before"/"after" mean "at or before"/"at or after"). A word/number falls
+    in the column when every bound it sets is satisfied.
 
     Keys (all optional, mix as needed):
-      left_edge_min:   x0 >= value
-      left_edge_max:   x0 <= value
-      right_edge_min:  x1 >= value
-      right_edge_max:  x1 <= value
-      right_edge_range: [lo, hi]  ->  lo <= x1 <= hi
+      starts_before:  N        ->  x0 <= N   (text starts at or before N)
+      starts_after:   N        ->  x0 >= N   (text starts at or after N)
+      starts_between: [lo, hi] ->  lo <= x0 <= hi
+      ends_before:    N        ->  x1 <= N   (number ends at or before N)
+      ends_after:     N        ->  x1 >= N   (number ends at or after N)
+      ends_between:   [lo, hi] ->  lo <= x1 <= hi
+
+    Two columns may share a boundary value (e.g. paid_in ends_before 495 and
+    balance ends_after 495); ordered column evaluation assigns the exact-495
+    case to whichever column is tested first.
     """
 
     left_edge_min: Optional[float] = None
@@ -122,11 +128,12 @@ class ColumnBounds:
                 f"column '{col_name}' must be a mapping of edge bounds"
             )
         known = {
-            "left_edge_min",
-            "left_edge_max",
-            "right_edge_min",
-            "right_edge_max",
-            "right_edge_range",
+            "starts_before",
+            "starts_after",
+            "starts_between",
+            "ends_before",
+            "ends_after",
+            "ends_between",
         }
         unknown = set(data) - known
         if unknown:
@@ -134,29 +141,36 @@ class ColumnBounds:
                 f"column '{col_name}' has unknown bound(s): {sorted(unknown)}. "
                 f"Allowed: {sorted(known)}"
             )
-        right_min = data.get("right_edge_min")
-        right_max = data.get("right_edge_max")
-        rng = data.get("right_edge_range")
-        if rng is not None:
-            if right_min is not None or right_max is not None:
-                raise ConfigError(
-                    f"column '{col_name}': right_edge_range cannot be combined "
-                    f"with right_edge_min/right_edge_max"
-                )
-            if not (isinstance(rng, (list, tuple)) and len(rng) == 2):
-                raise ConfigError(
-                    f"column '{col_name}': right_edge_range must be [lo, hi]"
-                )
-            right_min, right_max = rng[0], rng[1]
+
+        def _band(single_lo: str, single_hi: str, between: str):
+            """Resolve an inclusive (min, max) pair from single + between keys.
+            'after' is the lower bound; 'before' is the upper bound."""
+            lo = data.get(single_lo)
+            hi = data.get(single_hi)
+            rng = data.get(between)
+            if rng is not None:
+                if lo is not None or hi is not None:
+                    raise ConfigError(
+                        f"column '{col_name}': {between} cannot be combined with "
+                        f"{single_lo}/{single_hi}"
+                    )
+                if not (isinstance(rng, (list, tuple)) and len(rng) == 2):
+                    raise ConfigError(
+                        f"column '{col_name}': {between} must be [lo, hi]"
+                    )
+                lo, hi = rng[0], rng[1]
+            return (
+                float(lo) if lo is not None else None,
+                float(hi) if hi is not None else None,
+            )
+
+        left_min, left_max = _band("starts_after", "starts_before", "starts_between")
+        right_min, right_max = _band("ends_after", "ends_before", "ends_between")
         return cls(
-            left_edge_min=(
-                float(data["left_edge_min"]) if data.get("left_edge_min") is not None else None
-            ),
-            left_edge_max=(
-                float(data["left_edge_max"]) if data.get("left_edge_max") is not None else None
-            ),
-            right_edge_min=float(right_min) if right_min is not None else None,
-            right_edge_max=float(right_max) if right_max is not None else None,
+            left_edge_min=left_min,
+            left_edge_max=left_max,
+            right_edge_min=right_min,
+            right_edge_max=right_max,
         )
 
     def matches_left_edge(self, x0: float) -> bool:

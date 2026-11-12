@@ -58,14 +58,13 @@ transactions:
     date:
       # "Spend date" tokens start at x0 ~42 ("08" + "Jan"); "Date processed"
       # starts ~x120, excluded so the date reads as a single "08 Jan".
-      left_edge_max: 100
+      starts_before: 100
     description:
       # "Transaction details" start ~x270; this floor drops the Date-processed
       # (~x120) and Card-ending (~x210) columns.
-      left_edge_min: 265
+      starts_after: 265
     amount:
-      # "Amount £" numbers end at x1 ~526-546.
-      right_edge_min: 500
+      ends_after: 500          # "Amount £" numbers end at x1 ~526-546
     # no balance column
   # Dates like "08 Jan" (day, 3-letter month, no year).
   date_pattern: "^\\d{2} \\w{3}$"

@@ -63,14 +63,13 @@ transactions:
     date:
       # Trans Date only (x0 ~71); Post Date starts ~x122 and the transaction
       # reference number ~x167, both excluded so the date is a single "15DEC".
-      left_edge_max: 110
+      starts_before: 110
     description:
       # Details start ~x218; set the floor above the reference-number column
       # (~x167) so the ref is dropped rather than read as description.
-      left_edge_min: 210
+      starts_after: 210
     amount:
-      # "Amount £" numbers end at x1 ~512-553.
-      right_edge_min: 500
+      ends_after: 500          # "Amount £" numbers end at x1 ~512-553
     # no balance column
   # Dates like "15DEC", "01JAN" (day + 3-letter month, no year).
   date_pattern: "^\\d{1,2}[A-Z]{3}$"

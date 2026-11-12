@@ -54,23 +54,23 @@ fields:
 transactions:
   mode: positional
   # Column footprints in PDF x-coordinates (points). Text columns match a
-  # word's LEFT edge (x0); amount columns match a number's RIGHT edge (x1),
-  # since those are right-aligned. A number in no column is ignored.
+  # word's LEFT edge where text STARTS (x0); amount columns match where a
+  # number ENDS (right edge, x1), since those are right-aligned. A number that
+  # falls in no column is ignored.
   column_bounds:
     date:
       # Only the PROCESS-date token (x0 ~14-45) qualifies; the transaction-date
       # token starts ~x58. Capturing one token keeps it a single "Apr30"
       # string that date_pattern can validate.
-      left_edge_max: 50
+      starts_before: 50
     description:
-      # Details column starts ~x101; cap the right edge so the "Foreign Spend"
-      # column (currency name sits at x0 ~346) is not pulled into description.
-      left_edge_min: 100
-      left_edge_max: 300
+      # Details start ~x101; cap the far edge so the "Foreign Spend" column
+      # (currency name sits at x0 ~346) is not pulled into the description.
+      starts_between: [100, 300]
     amount:
       # "Amount £" numbers end at x1 ~498-533; the "Foreign Spend" sub-amount
-      # ends ~x418 and must fall outside this band to be ignored.
-      right_edge_range: [480, 560]
+      # ends ~x418, falling outside this band, so it is ignored.
+      ends_between: [480, 560]
     # no balance column on Amex
   # Dates like "Apr30", "May3", "Jun6" (month-day, no year).
   date_pattern: "^[A-Z][a-z]{2}\\d{1,2}$"
